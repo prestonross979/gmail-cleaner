@@ -5,7 +5,10 @@ import type { MessageRef } from "./list";
 import { parseFromHeader, parseListUnsubscribe } from "./parse";
 
 const METADATA_HEADERS = ["From", "Subject", "Date", "List-Unsubscribe", "List-Unsubscribe-Post"];
-const METADATA_CONCURRENCY = 8;
+// Higher concurrency shortens large scans; gmailFetch's retry/backoff
+// (lib/gmail/client.ts) absorbs any 429s this causes, so it's safe to push
+// this up rather than keeping large scans slow.
+const METADATA_CONCURRENCY = 15;
 
 interface GmailMessageHeader {
   name: string;

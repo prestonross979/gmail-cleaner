@@ -18,7 +18,7 @@ export interface MessageRef {
  */
 export async function listMessageIds(
   accessToken: string,
-  options: { limit: number; query?: string; labelIds?: string[] } = { limit: 200 },
+  options: { limit: number; query?: string; labelIds?: string[] } = { limit: 2000 },
 ): Promise<{ refs: MessageRef[]; truncated: boolean }> {
   const refs: MessageRef[] = [];
   let pageToken: string | undefined;
@@ -28,8 +28,10 @@ export async function listMessageIds(
     const remaining = options.limit - refs.length;
     if (remaining <= 0) break;
 
+    // 500 is the max page size the Gmail API allows for messages.list —
+    // using it minimizes round trips for large scans.
     const params = new URLSearchParams({
-      maxResults: String(Math.min(remaining, 100)),
+      maxResults: String(Math.min(remaining, 500)),
     });
     if (options.query) params.set("q", options.query);
     for (const labelId of options.labelIds ?? []) params.append("labelIds", labelId);

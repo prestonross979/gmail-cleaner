@@ -164,7 +164,7 @@ GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 NEXTAUTH_SECRET=  # generate with: openssl rand -base64 32
 NEXTAUTH_URL=http://localhost:3000
-GMAIL_SCAN_LIMIT=200
+GMAIL_SCAN_LIMIT=2000
 NEXT_PUBLIC_USE_MOCK_DATA=false
 ```
 
@@ -187,7 +187,7 @@ Gmail permissions. You'll land on the dashboard once the first scan completes.
 | `GOOGLE_CLIENT_SECRET` | Yes (unless mock mode) | OAuth client secret. Server-side only, never sent to the browser. |
 | `NEXTAUTH_SECRET` | Yes | Random secret Auth.js uses to sign session tokens. Generate with `openssl rand -base64 32`. |
 | `NEXTAUTH_URL` | Yes | Base URL of the app. `http://localhost:3000` for local dev. |
-| `GMAIL_SCAN_LIMIT` | No (default `200`) | Maximum number of inbox messages a single scan retrieves. See below. |
+| `GMAIL_SCAN_LIMIT` | No (default `2000`) | Maximum number of inbox messages a single scan retrieves. See below. |
 | `NEXT_PUBLIC_USE_MOCK_DATA` | No (default `false`) | When `true`, the app uses mock senders instead of calling Gmail. |
 
 See `.env.example` for a ready-to-copy template with placeholders (never real credentials).
@@ -195,12 +195,17 @@ See `.env.example` for a ready-to-copy template with placeholders (never real cr
 ## The Gmail scan limit
 
 Scanning an entire large Gmail account on every load would be slow and could burn through Gmail API quota quickly.
-`GMAIL_SCAN_LIMIT` (defined in `lib/env.ts`, default **200**) caps how many of the most recent inbox messages a
-single scan retrieves. Increase it once you're comfortable with how the app behaves against your account — the
-Gmail API allows up to 5000 in this app's validation, but start small.
+`GMAIL_SCAN_LIMIT` (defined in `lib/env.ts`, default **2000**) caps how many of the most recent inbox messages a
+single scan retrieves — and therefore how many messages are available for bulk archive/trash in one pass. If a
+scan is capped before reaching senders you want to clean up, raise this value in `.env.local` (hard-capped at
+**10000** regardless of what you set, to guard against typos). Larger values mean a slower scan, since each
+message's headers are fetched individually (`lib/gmail/metadata.ts`, concurrency-limited to 15 in-flight requests)
+rather than in one batched call — expect roughly 2–4 minutes for a scan in the thousands, depending on Gmail's
+response times and any rate-limit backoff.
 
-The dashboard shows how many messages were scanned and whether the limit was reached, so it's always clear the
-sender list may not represent your entire mailbox.
+The dashboard shows how many messages were scanned and whether the limit was reached, so it's always clear when
+the sender list doesn't yet represent your entire mailbox — in that case, use **Refresh scan** after archiving or
+trashing a batch to pull in the next layer of messages.
 
 ## Project structure
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { signOut } from "next-auth/react";
 import type { BulkActionType, ScanResult, SenderActionResultItem, SenderSummary } from "@/types/gmail";
 import { ApiError, fetchScan, postSenderAction } from "@/lib/api/client";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -55,6 +56,7 @@ export function DashboardShell({ mockMode }: { mockMode: boolean }) {
 
   const [status, setStatus] = useState<Status>("loading");
   const [errorMessage, setErrorMessage] = useState("");
+  const [isAuthError, setIsAuthError] = useState(false);
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -74,9 +76,11 @@ export function DashboardShell({ mockMode }: { mockMode: boolean }) {
       const result = await fetchScan();
       setScan(result);
       setStatus("ready");
+      setIsAuthError(false);
       setSelected(new Set());
     } catch (error) {
       setErrorMessage(error instanceof ApiError ? error.message : "Couldn't scan your mailbox. Please try again.");
+      setIsAuthError(error instanceof ApiError && error.code === "AUTH_REQUIRED");
       setStatus("error");
     } finally {
       if (isRefresh) setRefreshing(false);
@@ -94,6 +98,7 @@ export function DashboardShell({ mockMode }: { mockMode: boolean }) {
       .catch((error) => {
         if (cancelled) return;
         setErrorMessage(error instanceof ApiError ? error.message : "Couldn't scan your mailbox. Please try again.");
+        setIsAuthError(error instanceof ApiError && error.code === "AUTH_REQUIRED");
         setStatus("error");
       });
     return () => {
@@ -187,83 +192,85 @@ export function DashboardShell({ mockMode }: { mockMode: boolean }) {
     }
   }
 
-  if (status === "loading") {
-    return (
-      <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
-        <LoadingSkeleton />
-      </div>
-    );
-  }
-
-  if (status === "error") {
-    return (
-      <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
-        <ErrorState message={errorMessage} onRetry={() => runScan(false)} />
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-1 flex-col">
       <DashboardHeader mockMode={mockMode} onRefresh={() => runScan(true)} refreshing={refreshing} />
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-6 sm:px-8">
-        {scan && (
-          <p className="mb-4 text-xs text-foreground/50">
-            Scanned {scan.scannedCount} {pluralize(scan.scannedCount, "email")} across {senders.length}{" "}
-            {pluralize(senders.length, "sender")}
-            {scan.truncated ? ` (limit of ${scan.limit} reached — refresh to scan more)` : ""}.
-          </p>
-        )}
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <SearchBar value={search} onChange={setSearch} />
-          <SortControls sortKey={sortKey} onChange={setSortKey} />
+      {status === "loading" && (
+        <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
+          <LoadingSkeleton />
         </div>
+      )}
 
-        <div className="mt-4">
-          {senders.length === 0 ? (
-            <EmptyState
-              title="Your inbox is looking clean"
-              description="We didn't find any inbox messages to group. Try refreshing the scan if you expect senders here."
-            />
-          ) : filteredSorted.length === 0 ? (
-            <EmptyState title="No matching senders" description="Try a different search term." />
-          ) : (
-            <div className="space-y-2">
-              {visible.map((sender) => (
-                <SenderRow
-                  key={sender.senderEmail}
-                  sender={sender}
-                  selected={selected.has(sender.senderEmail)}
-                  onToggleSelect={toggleSelect}
-                  onOpenDetails={setDetailEmail}
-                />
-              ))}
-            </div>
+      {status === "error" && (
+        <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
+          <ErrorState
+            message={errorMessage}
+            retryLabel={isAuthError ? "Sign in again" : "Try again"}
+            onRetry={() => (isAuthError ? signOut({ callbackUrl: "/" }) : runScan(false))}
+          />
+        </div>
+      )}
+
+      {status === "ready" && (
+        <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-6 sm:px-8">
+          {scan && (
+            <p className="mb-4 text-xs text-foreground/50">
+              Scanned {scan.scannedCount} {pluralize(scan.scannedCount, "email")} across {senders.length}{" "}
+              {pluralize(senders.length, "sender")}
+              {scan.truncated ? ` (limit of ${scan.limit} reached — refresh to scan more)` : ""}.
+            </p>
           )}
 
-          {visibleCount < filteredSorted.length && (
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-foreground/70 ring-1 ring-border hover:bg-surface-muted"
-              >
-                Load more ({filteredSorted.length - visibleCount} remaining)
-              </button>
-            </div>
-          )}
-        </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <SearchBar value={search} onChange={setSearch} />
+            <SortControls sortKey={sortKey} onChange={setSortKey} />
+          </div>
 
-        <BulkActionBar
-          selectedCount={selected.size}
-          onArchive={() => requestBulkAction("archive")}
-          onTrash={() => requestBulkAction("trash")}
-          onClear={clearSelection}
-          disabled={isSubmittingAction}
-        />
-      </main>
+          <div className="mt-4">
+            {senders.length === 0 ? (
+              <EmptyState
+                title="Your inbox is looking clean"
+                description="We didn't find any inbox messages to group. Try refreshing the scan if you expect senders here."
+              />
+            ) : filteredSorted.length === 0 ? (
+              <EmptyState title="No matching senders" description="Try a different search term." />
+            ) : (
+              <div className="space-y-2">
+                {visible.map((sender) => (
+                  <SenderRow
+                    key={sender.senderEmail}
+                    sender={sender}
+                    selected={selected.has(sender.senderEmail)}
+                    onToggleSelect={toggleSelect}
+                    onOpenDetails={setDetailEmail}
+                  />
+                ))}
+              </div>
+            )}
+
+            {visibleCount < filteredSorted.length && (
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-foreground/70 ring-1 ring-border hover:bg-surface-muted"
+                >
+                  Load more ({filteredSorted.length - visibleCount} remaining)
+                </button>
+              </div>
+            )}
+          </div>
+
+          <BulkActionBar
+            selectedCount={selected.size}
+            onArchive={() => requestBulkAction("archive")}
+            onTrash={() => requestBulkAction("trash")}
+            onClear={clearSelection}
+            disabled={isSubmittingAction}
+          />
+        </main>
+      )}
 
       <SenderDetailModal
         sender={detailSender}

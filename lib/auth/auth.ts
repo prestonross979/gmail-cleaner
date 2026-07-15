@@ -1,6 +1,14 @@
 import NextAuth from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import Google from "next-auth/providers/google";
+import { isMockMode } from "@/lib/env";
+
+if (!isMockMode() && (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)) {
+  throw new Error(
+    "Missing GOOGLE_CLIENT_ID and/or GOOGLE_CLIENT_SECRET in your environment. " +
+      "Set both in .env.local (see .env.example), or set NEXT_PUBLIC_USE_MOCK_DATA=true to run without Google OAuth.",
+  );
+}
 
 /**
  * Single minimal scope covering everything this app needs: listing/searching
@@ -54,6 +62,13 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Google({
+      // Auth.js only auto-populates clientId/clientSecret from AUTH_GOOGLE_ID /
+      // AUTH_GOOGLE_SECRET env vars. This project uses GOOGLE_CLIENT_ID /
+      // GOOGLE_CLIENT_SECRET (per the README/.env.example), so they must be
+      // passed explicitly — otherwise Google receives no client_id and
+      // rejects the request with "Error 401: invalid_client".
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
           scope: GMAIL_SCOPES,
